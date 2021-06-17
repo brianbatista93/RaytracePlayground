@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "Camera.h"
 #include "DirectX11/DX11Device.h"
 #include "HittableList.h"
 #include "Interfaces/CommandList.h"
@@ -21,11 +22,30 @@ extern "C"
 }
 
 Color
-ray_color(const Ray& r, const IHittable& world)
+GammaCorrection(const Color& color)
+{
+    // clang-format off
+    return Color(
+        sqrtf(color.R),
+        sqrtf(color.G),
+        sqrtf(color.B)
+    );
+    // clang-format on
+}
+
+Color
+ray_color(const Ray& r, const IHittable& world, int32 depth)
 {
     HitRecord rec;
-    if (world.Hit(r, 0, infinity, rec)) {
-        return 0.5f * (rec.Normal + Vector3D(1, 1, 1));
+
+    if (depth <= 0) {
+        return Color(0.0f, 0.0f, 0.0f);
+    }
+
+    if (world.Hit(r, 0.001f, infinity, rec)) {
+        // return 0.5f * (rec.Normal + Vector3D(1, 1, 1));
+        Vector3D target = rec.Position + RandomInHemisphere(rec.Normal);
+        return 0.5f * ray_color(Ray(rec.Position, target - rec.Position), world, depth - 1);
     }
     Vector3D unit_direction = Normalize(r.Direction);
     float    t              = 0.5f * (unit_direction.Y + 1.0f);
@@ -35,8 +55,11 @@ ray_color(const Ray& r, const IHittable& world)
 int32
 main(int32 argc, char* argv[])
 {
+    const uint32 screenWidth  = 1280 / 3;
+    const uint32 screenHeight = 720 / 3;
+
     std::unique_ptr<IApplication> app;
-    app.reset(CreateApplication<WindowsApplication, DX11Device>(L"Test Application", 1280u, 720u));
+    app.reset(CreateApplication<WindowsApplication, DX11Device>(L"Test Application", screenWidth, screenHeight));
 
     app->GetDevice()->SetShaderDir("Shaders/");
 
@@ -46,9 +69,11 @@ main(int32 argc, char* argv[])
     assert(vshader->IsValid() && pshader->IsValid());
 
     // Image
-    const float aspect_ratio = 16.0f / 9.0f;
-    const int   image_width  = 1280;
-    const int   image_height = static_cast<int>(image_width / aspect_ratio);
+    const float aspect_ratio    = 16.0f / 9.0f;
+    const int32 image_width     = screenWidth;
+    const int32 image_height    = static_cast<int>(image_width / aspect_ratio);
+    const int32 samplesPerPixel = 100;
+    const int32 maxDepth        = 50;
 
     Texture2D* output
       = new Texture2D(image_width, image_height, PIXEL_FORMAT_R32G32B32A32, TEXTURE_FLAG_WRITABLE | TEXTURE_FLAG_SHADER_RESOURCE);
@@ -58,8 +83,8 @@ main(int32 argc, char* argv[])
     gCommandList.SetVertexShader(vshader->GetGpuShader());
     gCommandList.SetPixelShader(pshader->GetGpuShader());
     gCommandList.SetPrimitiveTopology(PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    gCommandList.SetViewport(0, 0, 1280, 720);
-    gCommandList.SetScissor(0, 0, 1280, 720);
+    gCommandList.SetViewport(0, 0, screenWidth, screenHeight);
+    gCommandList.SetScissor(0, 0, screenWidth, screenHeight);
 
     // World
     HittableList world;
@@ -67,24 +92,19 @@ main(int32 argc, char* argv[])
     world.Add(std::make_shared<Sphere>(Vector3D(0.0f, -100.5f, -1.0f), 100.0f));
 
     // Camera
-
-    float viewport_height = 2.0f;
-    float viewport_width  = aspect_ratio * viewport_height;
-    float focal_length    = 1.0f;
-
-    Vector3D origin            = Vector3D::Zero();
-    Vector3D horizontal        = Vector3D(viewport_width, 0, 0);
-    Vector3D vertical          = Vector3D(0, viewport_height, 0);
-    Vector3D lower_left_corner = origin - horizontal / 2.0f - vertical / 2.0f - Vector3D(0.0f, 0.0f, focal_length);
+    Camera cam;
 
     std::vector<Color> colorRow(image_width);
     for (int j = image_height - 1; j >= 0; --j) {
         for (int i = 0; i < image_width; ++i) {
-            float u = float(i) / (image_width - 1);
-            float v = float(j) / (image_height - 1);
-            Ray   r(origin, lower_left_corner + u * horizontal + v * vertical - origin);
-            Color pixel_color = ray_color(r, world);
-            colorRow[i]       = pixel_color;
+            Color pixelColor(0, 0, 0);
+            for (int32 s = 0; s < samplesPerPixel; s++) {
+                float u = float(i + Random()) / (image_width - 1);
+                float v = float(j + Random()) / (image_height - 1);
+                Ray   r = cam.GetRay(u, v);
+                pixelColor += ray_color(r, world, maxDepth);
+            }
+            colorRow[i] = GammaCorrection(pixelColor / samplesPerPixel);
         }
         app->TickFrame();
 
