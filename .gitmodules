@@ -1,0 +1,3 @@
+[submodule "GraphicsFramework"]
+	path = GraphicsFramework
+	url = https://github.com/brianbatista93/GraphicsFramework.git
