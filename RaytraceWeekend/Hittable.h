@@ -2,12 +2,15 @@
 
 #include "Math/Ray.h"
 
+class IMaterial;
+
 struct HitRecord
 {
-    Vector3D Position;
-    Vector3D Normal;
-    float    T;
-    bool     IsFrontFace;
+    Vector3D                   Position;
+    Vector3D                   Normal;
+    std::shared_ptr<IMaterial> matPtr;
+    float                      T;
+    bool                       IsFrontFace;
 
     inline void SetFaceNormal(const Ray& r, const Vector3D& outwardNormal)
     {

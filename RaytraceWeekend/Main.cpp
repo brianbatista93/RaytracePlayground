@@ -4,6 +4,7 @@
 #include "DirectX11/DX11Device.h"
 #include "HittableList.h"
 #include "Interfaces/CommandList.h"
+#include "Material.h"
 #include "Math/Color.h"
 #include "Math/MathConstants.h"
 #include "Math/Ray.h"
@@ -43,20 +44,23 @@ ray_color(const Ray& r, const IHittable& world, int32 depth)
     }
 
     if (world.Hit(r, 0.001f, infinity, rec)) {
-        // return 0.5f * (rec.Normal + Vector3D(1, 1, 1));
-        Vector3D target = rec.Position + RandomInHemisphere(rec.Normal);
-        return 0.5f * ray_color(Ray(rec.Position, target - rec.Position), world, depth - 1);
+        Ray   scattered;
+        Color attenuation;
+        if (rec.matPtr->Scatter(r, rec, attenuation, scattered)) {
+            return attenuation * ray_color(scattered, world, depth - 1);
+        }
+        return rec.matPtr->Emit();
     }
     Vector3D unit_direction = Normalize(r.Direction);
     float    t              = 0.5f * (unit_direction.Y + 1.0f);
-    return Lerp(Color(1.0f, 1.0f, 1.0f), Color(0.5f, 0.7f, 1.0f), t);
+    return 0.025f * Lerp(Color(1.0f, 1.0f, 1.0f), Color(0.5f, 0.7f, 1.0f), t);
 }
 
 int32
 main(int32 argc, char* argv[])
 {
-    const uint32 screenWidth  = 1280 / 3;
-    const uint32 screenHeight = 720 / 3;
+    const uint32 screenWidth  = 1280;
+    const uint32 screenHeight = 720;
 
     std::unique_ptr<IApplication> app;
     app.reset(CreateApplication<WindowsApplication, DX11Device>(L"Test Application", screenWidth, screenHeight));
@@ -72,7 +76,7 @@ main(int32 argc, char* argv[])
     const float aspect_ratio    = 16.0f / 9.0f;
     const int32 image_width     = screenWidth;
     const int32 image_height    = static_cast<int>(image_width / aspect_ratio);
-    const int32 samplesPerPixel = 100;
+    const int32 samplesPerPixel = 500;
     const int32 maxDepth        = 50;
 
     Texture2D* output
@@ -87,9 +91,20 @@ main(int32 argc, char* argv[])
     gCommandList.SetScissor(0, 0, screenWidth, screenHeight);
 
     // World
+    // HittableList world = random_scene();
     HittableList world;
-    world.Add(std::make_shared<Sphere>(Vector3D(0.0f, 0.0f, -1.0f), 0.5f));
-    world.Add(std::make_shared<Sphere>(Vector3D(0.0f, -100.5f, -1.0f), 100.0f));
+
+    auto material_ground = std::make_shared<LambertMaterial>(Color(0.8f, 0.8f, 0.0f));
+    auto material_center = std::make_shared<MetalMaterial>(Color(0.7f, 0.3f, 0.3f), 0.125f);
+    auto material_left   = std::make_shared<MetalMaterial>(Color(0.8f, 0.8f, 0.8f), 0.3f);
+    auto material_right  = std::make_shared<MetalMaterial>(Color(0.8f, 0.6f, 0.3f), 1.0f);
+    auto material_top    = std::make_shared<EmissiveMaterial>(Color(1.0f, 1.0f, 1.0f, 5.0f));
+
+    world.Add(std::make_shared<Sphere>(Vector3D(0.0f, -100.5f, -1.0f), 100.0f, material_ground));
+    world.Add(std::make_shared<Sphere>(Vector3D(0.0f, 0.0f, -1.0f), 0.5f, material_center));
+    world.Add(std::make_shared<Sphere>(Vector3D(-1.0f, 0.0f, -1.0f), 0.5f, material_left));
+    world.Add(std::make_shared<Sphere>(Vector3D(1.0f, 0.0f, -1.0f), 0.5f, material_right));
+    world.Add(std::make_shared<Sphere>(Vector3D(0.0f, 1.0f, -.8f), 0.25f, material_top));
 
     // Camera
     Camera cam;
@@ -106,15 +121,20 @@ main(int32 argc, char* argv[])
             }
             colorRow[i] = GammaCorrection(pixelColor / samplesPerPixel);
         }
-        app->TickFrame();
 
         output->SetPixelRow(image_height - j - 1, colorRow.data());
 
+        app->TickFrame();
+
         gCommandList.SetRenderTargetsDepthStencil({app->GetSurface()->GetBackBuffer()}, nullptr);
-        gCommandList.ClearRT(app->GetSurface()->GetBackBuffer(), {0.0f, 0.0f, 0.0f, 1.0f});
+        // gCommandList.ClearRT(app->GetSurface()->GetBackBuffer(), {0.0f, 0.0f, 0.0f, 1.0f});
         gCommandList.Draw(3);
 
         app->GetSurface()->Present();
+
+        if (app->IsExiting()) {
+            break;
+        }
     }
 
     while (!app->IsExiting()) {

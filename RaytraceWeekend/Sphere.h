@@ -7,15 +7,17 @@ struct Sphere : public IHittable
 {
     Sphere() {}
 
-    Sphere(const Vector3D& center, float radius)
+    Sphere(const Vector3D& center, float radius, std::shared_ptr<IMaterial> material)
       : Center(center)
       , Radius(radius)
+      , matPtr(material)
     {}
 
     virtual bool Hit(const Ray& r, float t_min, float t_max, HitRecord& rec) const;
 
-    Vector3D Center;
-    float    Radius;
+    Vector3D                   Center;
+    float                      Radius;
+    std::shared_ptr<IMaterial> matPtr;
 };
 
 bool
@@ -44,6 +46,7 @@ Sphere::Hit(const Ray& r, float t_min, float t_max, HitRecord& rec) const
     rec.Position           = r(rec.T);
     Vector3D outwardNormal = (rec.Position - Center) / Radius;
     rec.SetFaceNormal(r, outwardNormal);
+    rec.matPtr = matPtr;
 
     return true;
 }
